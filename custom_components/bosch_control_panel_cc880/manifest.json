@@ -1,0 +1,14 @@
+{
+  "domain": "bosch_control_panel_cc880",
+  "name": "bosch_control_panel_cc880",
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/bosch_control_panel_cc880",
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [],
+  "codeowners": [
+    "@hgomes88"
+  ]
+}
