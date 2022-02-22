@@ -82,6 +82,8 @@ class Area:
 
 
 ZoneListener = Callable[[Zone], bool]
+AreaListener = Callable[[Area], bool]
+SirenListener = Callable[[bool], bool]
 
 
 class Alarm:
@@ -98,6 +100,8 @@ class Alarm:
     def __init__(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
         self._loop = loop or asyncio.get_event_loop()
         self._zone_listeners: Dict[int, List[ZoneListener]] = {}
+        self._area_listeners: Dict[int, List[AreaListener]] = {}
+        self._siren_listeners: List[SirenListener] = []
         self._zones: dict[int, Zone] = {}
         self._num_par_reqs = 0
 
@@ -141,6 +145,10 @@ class Alarm:
     def areas(self):
         return self._areas
 
+    @property
+    def siren(self):
+        return self._siren
+
     def _create_outputs(self):
         self._outputs: Dict[int, Output] = {}
         for i in range(self.NUMBER_OF_OUTPUTS):
@@ -183,7 +191,7 @@ class Alarm:
     async def get_status_cmd(self):
         """ """
 
-        cmd = bytes([0x01, 0x00, 0x00, 0x00, 0x21, 0x43, 0xFF, 0x0F, 0x00, 0x00, 0x7B])
+        cmd = bytes([0x01, 0x00, 0x00, 0x00, 0x91, 0x30, 0x19, 0x0F, 0x00, 0x00, 0xF1])
         resp = await self._send_command(cmd)
         if resp:
             _LOGGER.debug("Status Response: %s", resp)
@@ -224,12 +232,26 @@ class Alarm:
                 self._zone_listeners[zone_number] = []
             self._zone_listeners[zone_number].append(listener)
 
+    def add_area_listener(self, area_number: int, listener: AreaListener):
+        if area_number in set(self._areas.keys()):
+            if area_number not in self._area_listeners:
+                self._area_listeners[area_number] = []
+            self._area_listeners[area_number].append(listener)
+
+    def add_siren_listener(self, listener: SirenListener):
+        self._siren_listeners.append(listener)
+
     def _update_siren_status(self, data: int):
         bit = 6
         status = bool(data & (1 << bit))
 
         if self._siren != status:
             self._siren = status
+
+            for listener in self._siren_listeners:
+                if listener:
+                    asyncio.create_task(listener(status))
+
             _LOGGER.info("Status of Siren changed to %d", self._siren)
 
     def _update_output_status(self, data: int):
@@ -250,6 +272,7 @@ class Alarm:
             away_status = bool(data & (1 << away_bit))
             stay_status = bool(data & (1 << stay_bit))
             area = self._areas[i + 1]
+            status_chanded = False
 
             if away_status and stay_status:
                 _LOGGER.error(
@@ -259,21 +282,21 @@ class Alarm:
             elif not away_status and not stay_status:
                 if area.mode is not ArmingMode.DISARMED:
                     area.mode = ArmingMode.DISARMED
-                    _LOGGER.info(
-                        "Status of Area %d changed to %s", area.number, area.mode
-                    )
+                    status_chanded = True
             elif away_status and area.mode is not ArmingMode.ARMED_AWAY:
                 if area.mode is not ArmingMode.ARMED_AWAY:
+                    status_chanded = True
                     area.mode = ArmingMode.ARMED_AWAY
-                    _LOGGER.info(
-                        "Status of Area %d changed to %s", area.number, area.mode
-                    )
             elif stay_status and area.mode is not ArmingMode.ARMED_STAY:
                 if area.mode is not ArmingMode.ARMED_STAY:
+                    status_chanded = True
                     area.mode = ArmingMode.ARMED_STAY
-                    _LOGGER.info(
-                        "Status of Area %d changed to %s", area.number, area.mode
-                    )
+            if status_chanded:
+                if area.number in self._area_listeners:
+                    for listener in self._area_listeners[area.number]:
+                        if listener:
+                            asyncio.create_task(listener(area))
+                _LOGGER.info("Status of Area %d changed to %s", area.number, area.mode)
 
     async def _get_crc(self, data: bytes):
 
@@ -336,6 +359,4 @@ class Alarm:
                 + n_keys
                 + bytes([await self._get_crc(cmd)])
             )
-            # print(f"({len(b)}) Sending", to_hex(b))
             resp = await self._send_command(b)
-            # print("Key Response", resp)

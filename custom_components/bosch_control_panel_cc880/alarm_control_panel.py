@@ -3,7 +3,7 @@ import logging
 from signal import alarm
 
 from .const import DATA_BOSCH, DOMAIN
-from .alarm import Alarm, ArmingMode
+from .alarm import Alarm, Area, ArmingMode
 
 from homeassistant.components.alarm_control_panel import (
     FORMAT_NUMBER,
@@ -11,11 +11,11 @@ from homeassistant.components.alarm_control_panel import (
 )
 from homeassistant.components.alarm_control_panel.const import (
     SUPPORT_ALARM_ARM_AWAY,
-    SUPPORT_ALARM_ARM_HOME,
+    SUPPORT_ALARM_ARM_NIGHT,
 )
 from homeassistant.const import (
     STATE_ALARM_ARMED_AWAY,
-    STATE_ALARM_ARMED_HOME,
+    STATE_ALARM_ARMED_NIGHT,
     STATE_ALARM_ARMING,
     STATE_ALARM_DISARMED,
     STATE_ALARM_DISARMING,
@@ -68,7 +68,8 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         _LOGGER.info("Started the Bosch Control Panel")
 
     async def _init(self):
-        pass
+        self._alarm.add_area_listener(1, self._area_listener)
+        self._alarm.add_siren_listener(self._siren_listener)
 
     @property
     def code_format(self):
@@ -102,25 +103,32 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
     @property
     def state(self):
         """Return the state of the device."""
-        if self._tmp_state is not STATE_UNKNOWN:
-            self._state = self._tmp_state
+        if self._alarm.siren:
+            self._state = STATE_ALARM_TRIGGERED
         else:
-            mode = self._alarm.areas[1].mode
-            if mode == ArmingMode.DISARMED and self._state != STATE_ALARM_DISARMED:
-                self._state = STATE_ALARM_DISARMED
-            elif (
-                mode == ArmingMode.ARMED_AWAY and self._state != STATE_ALARM_ARMED_AWAY
-            ):
-                self._state = STATE_ALARM_ARMED_AWAY
-            elif mode == ArmingMode.ARMED_STAY and self.state != STATE_ALARM_ARMED_HOME:
-                self._state = STATE_ALARM_ARMED_HOME
+            if self._tmp_state is not STATE_UNKNOWN:
+                self._state = self._tmp_state
+            else:
+                mode = self._alarm.areas[1].mode
+                if mode == ArmingMode.DISARMED and self._state != STATE_ALARM_DISARMED:
+                    self._state = STATE_ALARM_DISARMED
+                elif (
+                    mode == ArmingMode.ARMED_AWAY
+                    and self._state != STATE_ALARM_ARMED_AWAY
+                ):
+                    self._state = STATE_ALARM_ARMED_AWAY
+                elif (
+                    mode == ArmingMode.ARMED_STAY
+                    and self._state != STATE_ALARM_ARMED_NIGHT
+                ):
+                    self._state = STATE_ALARM_ARMED_NIGHT
 
         return self._state
 
     @property
     def supported_features(self) -> int:
         """Return the list of supported features."""
-        return SUPPORT_ALARM_ARM_HOME | SUPPORT_ALARM_ARM_AWAY
+        return SUPPORT_ALARM_ARM_NIGHT | SUPPORT_ALARM_ARM_AWAY
 
     async def _change_state(self, code, state):
         self._tmp_state = state
@@ -130,28 +138,35 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         await self.async_update_ha_state(force_refresh=True)
 
     async def async_alarm_disarm(self, code=None):
-        _LOGGER.info("Disarming with code %s", code)
+        _LOGGER.info("Disarming")
         if self.state not in [STATE_ALARM_DISARMING, STATE_ALARM_DISARMED]:
-            await self._change_state(code=f"{code}0#", state=STATE_ALARM_DISARMING)
+            await self._change_state(code=f"{code}#", state=STATE_ALARM_DISARMING)
 
-    async def async_alarm_arm_home(self, code=None):
-        _LOGGER.info("Arming Home with code %s", code)
+    async def async_alarm_arm_night(self, code=None):
+        _LOGGER.info("Arming Night")
         if self.state == STATE_ALARM_DISARMED:
-            await self._change_state(code=f"{code}0*", state=STATE_ALARM_ARMING)
+            await self._change_state(code=f"{code}*", state=STATE_ALARM_ARMING)
 
     async def async_alarm_arm_away(self, code=None):
-        _LOGGER.info("Arming Away with code %s", code)
+        _LOGGER.info("Arming Away")
         if self.state == STATE_ALARM_DISARMED:
-            await self._change_state(code=f"{code}0#", state=STATE_ALARM_ARMING)
+            await self._change_state(code=f"{code}#", state=STATE_ALARM_ARMING)
 
     def alarm_trigger(self, code=None):
-        _LOGGER.info("Triggering the Alarm with code %s", code)
+        _LOGGER.info("Triggering the Alarm")
 
     def async_alarm_arm_custom_bypass(self, code=None) -> None:
-        """Send arm custom bypass command."""
-
-        _LOGGER.info("Arming with custom bypass with code %s", code)
+        _LOGGER.info("Arming with custom")
 
     async def async_update(self):
-        _LOGGER.info("Forced Update")
-        await self._alarm.get_status_cmd()
+        pass
+        # _LOGGER.info("Forced Update")
+        # await self._alarm.get_status_cmd()
+
+    async def _area_listener(self, area: Area):
+        await self.async_update_ha_state()
+        return True
+
+    async def _siren_listener(self, status: bool):
+        await self.async_update_ha_state()
+        return True
