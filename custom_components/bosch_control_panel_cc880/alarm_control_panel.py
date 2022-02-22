@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from signal import alarm
+from typing import Optional
 
 from .const import DATA_BOSCH, DOMAIN
 from .alarm import Alarm, Area, ArmingMode
@@ -60,7 +61,7 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         _LOGGER.info("Starting the Bosch Control Panel")
 
         self._state = STATE_UNKNOWN
-        self._tmp_state = STATE_UNKNOWN
+        self._tansition_state: Optional[str] = None
         self._alarm: Alarm = alarm
 
         asyncio.create_task(self._init())
@@ -106,8 +107,8 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         if self._alarm.siren:
             self._state = STATE_ALARM_TRIGGERED
         else:
-            if self._tmp_state is not STATE_UNKNOWN:
-                self._state = self._tmp_state
+            if self._tansition_state:
+                self._state = self._tansition_state
             else:
                 mode = self._alarm.areas[1].mode
                 if mode == ArmingMode.DISARMED and self._state != STATE_ALARM_DISARMED:
@@ -130,27 +131,36 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         """Return the list of supported features."""
         return SUPPORT_ALARM_ARM_NIGHT | SUPPORT_ALARM_ARM_AWAY
 
-    async def _change_state(self, code, state):
-        self._tmp_state = state
+    async def _change_state(self, code, transition_state):
+        # Change the status to the transition state
+        self._tansition_state = transition_state
+        # Force update of the transtition state
         await self.async_update_ha_state()
+        # Send the code to change the state
         await self._alarm.send_keys(code)
-        self._tmp_state = STATE_UNKNOWN
+        # Force the update
         await self.async_update_ha_state(force_refresh=True)
 
     async def async_alarm_disarm(self, code=None):
         _LOGGER.info("Disarming")
         if self.state not in [STATE_ALARM_DISARMING, STATE_ALARM_DISARMED]:
-            await self._change_state(code=f"{code}#", state=STATE_ALARM_DISARMING)
+            await self._change_state(
+                code=f"{code}#", transition_state=STATE_ALARM_DISARMING
+            )
 
     async def async_alarm_arm_night(self, code=None):
         _LOGGER.info("Arming Night")
         if self.state == STATE_ALARM_DISARMED:
-            await self._change_state(code=f"{code}*", state=STATE_ALARM_ARMING)
+            await self._change_state(
+                code=f"{code}*", transition_state=STATE_ALARM_ARMING
+            )
 
     async def async_alarm_arm_away(self, code=None):
         _LOGGER.info("Arming Away")
         if self.state == STATE_ALARM_DISARMED:
-            await self._change_state(code=f"{code}#", state=STATE_ALARM_ARMING)
+            await self._change_state(
+                code=f"{code}#", transition_state=STATE_ALARM_ARMING
+            )
 
     def alarm_trigger(self, code=None):
         _LOGGER.info("Triggering the Alarm")
@@ -159,9 +169,10 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         _LOGGER.info("Arming with custom")
 
     async def async_update(self):
-        pass
-        # _LOGGER.info("Forced Update")
-        # await self._alarm.get_status_cmd()
+        # Request the new status
+        await self._alarm.get_status_cmd()
+        # Remove the transition state
+        self._tansition_state = None
 
     async def _area_listener(self, area: Area):
         await self.async_update_ha_state()
