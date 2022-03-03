@@ -164,13 +164,20 @@ class Alarm:
         try:
             self._num_par_reqs += 1
 
+            # Ensure a clean buffer
+            self._reader._buffer.clear()
+
             # Send the command
             self._writer.write(message)
+            await self._writer.drain()
+
             # Wait for a response
             try:
                 resp = await asyncio.wait_for(self._reader.read(32), timeout=2)
             except asyncio.exceptions.TimeoutError:
                 _LOGGER.warning("Message not received on time")
+            except asyncio.IncompleteReadError as ex:
+                _LOGGER.warning("Message not received. Reason: %s", ex)
 
             return resp
         finally:

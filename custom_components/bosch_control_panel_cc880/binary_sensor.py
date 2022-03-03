@@ -46,14 +46,17 @@ class BoschAlarmZone(BinarySensorEntity):
         self._is_on = False
         self._state = STATE_UNKNOWN
 
-        _LOGGER.info(f"Starting the Bosch Control Panel Zone {self._zone.number}")
-
-        asyncio.create_task(self._init())
-
-        _LOGGER.info(f"Started the Bosch Control Panel Zone {self._zone.number}")
-
     async def _init(self):
         self._alarm.add_zone_listener(self._zone.number, self._zone_listener)
+
+    async def async_added_to_hass(self) -> None:
+        _LOGGER.info("Starting the Bosch Control Panel Zone %d", self._zone.number)
+        await self._init()
+        _LOGGER.info("Started the Bosch Control Panel Zone %d", self._zone.number)
+
+    async def async_will_remove_from_hass(self) -> None:
+        _LOGGER.info("Stopping the Bosch Control Panel Zone %d", self._zone.number)
+        _LOGGER.info("Stopped the Bosch Control Panel Zone %d", self._zone.number)
 
     @property
     def is_on(self):

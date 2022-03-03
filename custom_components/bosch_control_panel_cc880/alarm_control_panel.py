@@ -58,19 +58,22 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
 
     def __init__(self, alarm: Alarm) -> None:
 
-        _LOGGER.info("Starting the Bosch Control Panel")
-
         self._state = STATE_UNKNOWN
         self._tansition_state: Optional[str] = None
         self._alarm: Alarm = alarm
 
-        asyncio.create_task(self._init())
-
-        _LOGGER.info("Started the Bosch Control Panel")
-
     async def _init(self):
         self._alarm.add_area_listener(1, self._area_listener)
         self._alarm.add_siren_listener(self._siren_listener)
+
+    async def async_added_to_hass(self) -> None:
+        _LOGGER.info("Starting the Bosch Control Panel")
+        await self._init()
+        _LOGGER.info("Started the Bosch Control Panel")
+
+    async def async_will_remove_from_hass(self) -> None:
+        _LOGGER.info("Stopping the Bosch Control Panel")
+        _LOGGER.info("Stopped the Bosch Control Panel")
 
     @property
     def code_format(self):
@@ -132,14 +135,18 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         return SUPPORT_ALARM_ARM_NIGHT | SUPPORT_ALARM_ARM_AWAY
 
     async def _change_state(self, code, transition_state):
-        # Change the status to the transition state
-        self._tansition_state = transition_state
-        # Force update of the transtition state
-        await self.async_update_ha_state()
-        # Send the code to change the state
-        await self._alarm.send_keys(code)
-        # Force the update
-        await self.async_update_ha_state(force_refresh=True)
+        try:
+            # Change the status to the transition state
+            self._tansition_state = transition_state
+            # Force update of the transtition state
+            await self.async_update_ha_state()
+            # Send the code to change the state
+            await self._alarm.send_keys(code)
+            # Force the update
+            await self.async_update_ha_state(force_refresh=True)
+        except Exception as ex:
+            _LOGGER.error("Couldn't change the alarm to %s: %s", transition_state, ex)
+            self._tansition_state = None
 
     async def async_alarm_disarm(self, code=None):
         _LOGGER.info("Disarming")
