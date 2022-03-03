@@ -147,6 +147,8 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         except Exception as ex:
             _LOGGER.error("Couldn't change the alarm to %s: %s", transition_state, ex)
             self._tansition_state = None
+            # Force update of the transtition state
+            await self.async_update_ha_state()
 
     async def async_alarm_disarm(self, code=None):
         _LOGGER.info("Disarming")
