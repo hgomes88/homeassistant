@@ -8,7 +8,14 @@ from .alarm import Alarm
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DATA_BOSCH, DATA_OPTIONS_UPDATE_UNSUBSCRIBER, DOMAIN, PLATFORMS
+from .const import (
+    CONF_HOST,
+    CONF_PORT,
+    DATA_BOSCH,
+    DATA_OPTIONS_UPDATE_UNSUBSCRIBER,
+    DOMAIN,
+    PLATFORMS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,10 +34,12 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
-    _LOGGER.info("Async Setup Entry")
+    _LOGGER.info("Async Setup Entry Start...")
 
     _success = False
-    _alarm = Alarm()
+    _ip = entry.data[CONF_HOST]
+    _port = entry.data[CONF_PORT]
+    _alarm = Alarm(ip=_ip, port=_port)
     _success = await _alarm.start()
 
     if _success:
@@ -47,15 +56,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 hass.config_entries.async_forward_entry_setup(entry, component)
             )
 
+    _LOGGER.info("Async Load Entry Done")
+
     return _success
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
 
-    _LOGGER.info("Async Unload Entry")
+    _LOGGER.info("Async Unload Entry Start...")
 
-    unload_ok = all(
+    _success = all(
         await asyncio.gather(
             *[
                 hass.config_entries.async_forward_entry_unload(entry, component)
@@ -63,10 +74,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
             ]
         )
     )
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+    if _success:
+        _LOGGER.info("Async Unload Entry Done")
+        _alarm: Alarm = hass.data[DOMAIN].pop(entry.entry_id)[DATA_BOSCH]
+        await _alarm.stop()
+    else:
+        _LOGGER.error("Async Unload Entry Error")
 
-    return unload_ok
+    return _success
 
 
 async def options_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

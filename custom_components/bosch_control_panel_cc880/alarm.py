@@ -1,4 +1,5 @@
 import asyncio
+from asyncio import tasks
 from dataclasses import dataclass
 from enum import Enum
 import logging
@@ -92,18 +93,19 @@ class Alarm:
     NUMBER_OF_AREAS = 1
     # NUMBER_OF_OUTPUTS = 6
     NUMBER_OF_OUTPUTS = 1
-    TCP_IP = "192.168.1.22"
-    TCP_PORT = 23
-    BUFFER_SIZE = 13
     MAX_PAR_REQUS = 1
 
-    def __init__(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    def __init__(
+        self, ip: str, port: str, loop: Optional[asyncio.AbstractEventLoop] = None
+    ) -> None:
         self._loop = loop or asyncio.get_event_loop()
         self._zone_listeners: Dict[int, List[ZoneListener]] = {}
         self._area_listeners: Dict[int, List[AreaListener]] = {}
         self._siren_listeners: List[SirenListener] = []
         self._zones: dict[int, Zone] = {}
         self._num_par_reqs = 0
+        self._ip = ip
+        self._port = port
 
         self._create_outputs()
         self._create_areas()
@@ -111,19 +113,18 @@ class Alarm:
         self._siren = False
         self._reader: asyncio.StreamReader
         self._writer: asyncio.StreamWriter
+        self._tasks: List[asyncio.Task] = []
 
-    async def start(self):
-        self._reader, self._writer = await asyncio.open_connection(
-            self.TCP_IP, self.TCP_PORT
-        )
-
+    async def start(self) -> bool:
+        self._reader, self._writer = await asyncio.open_connection(self._ip, self._port)
         # Create the task that requests the status periodically
-        asyncio.create_task(self._get_status_task())
-
+        self._tasks.append(asyncio.create_task(self._get_status_task()))
         return True
 
-    async def stop(self):
-        await self._writer.wait_closed()
+    async def stop(self) -> bool:
+        for task in self._tasks:
+            task.cancel()
+        return True
 
     @property
     def zones(self):
