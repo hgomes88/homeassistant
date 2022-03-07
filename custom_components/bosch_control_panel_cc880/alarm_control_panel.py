@@ -141,9 +141,9 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
             # Force update of the transtition state
             await self.async_update_ha_state()
             # Send the code to change the state
-            await self._alarm.send_keys(code)
+            await self._alarm.send_keys(keys=code, update=True)
             # Force the update
-            await self.async_update_ha_state(force_refresh=True)
+            await self.async_update_ha_state()
         except Exception as ex:
             _LOGGER.error("Couldn't change the alarm to %s: %s", transition_state, ex)
             self._tansition_state = None
