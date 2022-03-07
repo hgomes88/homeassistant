@@ -103,7 +103,6 @@ class Alarm:
     NUMBER_OF_AREAS = 1
     # NUMBER_OF_OUTPUTS = 6
     NUMBER_OF_OUTPUTS = 1
-    MAX_PAR_REQUS = 1
 
     def __init__(
         self, ip: str, port: str, loop: Optional[asyncio.AbstractEventLoop] = None
@@ -113,7 +112,7 @@ class Alarm:
         self._area_listeners: Dict[int, List[AreaListener]] = {}
         self._siren_listeners: List[SirenListener] = []
         self._zones: Dict[int, Zone] = {}
-        self._num_par_reqs = 0
+        self._lock = asyncio.Lock()
         self._ip = ip
         self._port = port
 
@@ -203,30 +202,30 @@ class Alarm:
     @retry(retry_policy="_retry_policy", before_retry="_before_retry")
     async def _send(self, message: bytes):
 
+        # Ensure a clean buffer
+        self._reader._buffer.clear()
+
         # Send the command
         self._writer.write(message)
         await self._writer.drain()
 
         # Wait for a response
-        return await asyncio.wait_for(self._reader.read(32), timeout=3)
+        return await asyncio.wait_for(self._reader.read(32), timeout=2)
 
     async def _send_command(self, message: bytes):
         resp = None
 
-        while self._num_par_reqs >= self.MAX_PAR_REQUS:
-            await asyncio.sleep(0.05)
-
-        try:
-            self._num_par_reqs += 1
-            resp = await self._send(message)
-        except asyncio.exceptions.TimeoutError:
-            _LOGGER.warning("Message not received on time")
-        except asyncio.IncompleteReadError as ex:
-            _LOGGER.warning("Message not received. Reason: %s", ex)
-        except ConnectionResetError:
-            _LOGGER.warning("Connection reset by peer")
-        finally:
-            self._num_par_reqs -= 1
+        async with self._lock:
+            try:
+                resp = await self._send(message)
+            except asyncio.exceptions.TimeoutError:
+                _LOGGER.warning("Message not received on time")
+            except asyncio.IncompleteReadError as ex:
+                _LOGGER.warning("Message not received. Reason: %s", ex)
+            except ConnectionResetError:
+                _LOGGER.warning("Connection reset by peer")
+            except Exception as ex:
+                _LOGGER.warning("Unexpected Error: %s", ex)
 
         return resp
 
@@ -234,7 +233,7 @@ class Alarm:
         while True:
             _LOGGER.debug("Getting Status")
             await self.get_status_cmd()
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
     async def _handle_data(self, data: bytes):
         _LOGGER.debug("New Data: %s", to_hex(data))
