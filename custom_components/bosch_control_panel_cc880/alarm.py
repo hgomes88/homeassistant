@@ -215,24 +215,24 @@ class Alarm:
     async def _send_command(self, message: bytes):
         resp = None
 
-        async with self._lock:
-            try:
-                resp = await self._send(message)
-            except asyncio.exceptions.TimeoutError:
-                _LOGGER.warning("Message not received on time")
-            except asyncio.IncompleteReadError as ex:
-                _LOGGER.warning("Message not received. Reason: %s", ex)
-            except ConnectionResetError:
-                _LOGGER.warning("Connection reset by peer")
-            except Exception as ex:
-                _LOGGER.warning("Unexpected Error: %s", ex)
+        try:
+            resp = await self._send(message)
+        except asyncio.exceptions.TimeoutError:
+            _LOGGER.warning("Message not received on time")
+        except asyncio.IncompleteReadError as ex:
+            _LOGGER.warning("Message not received. Reason: %s", ex)
+        except ConnectionResetError:
+            _LOGGER.warning("Connection reset by peer")
+        except Exception as ex:
+            _LOGGER.warning("Unexpected Error: %s", ex)
 
         return resp
 
     async def _get_status_task(self):
         while True:
             _LOGGER.debug("Getting Status")
-            await self.get_status_cmd()
+            async with self._lock:
+                await self.get_status_cmd()
             await asyncio.sleep(2)
 
     async def _handle_data(self, data: bytes):
@@ -386,7 +386,7 @@ class Alarm:
 
         return 0
 
-    async def send_keys(self, keys: Union[str, List[str]]):
+    async def send_keys(self, keys: Union[str, List[str]], update: bool = False):
         """Simulates a keypad, allowing sending multiple keys
         """
 
@@ -411,16 +411,20 @@ class Alarm:
         for i in range(0, len(new_keys), max_keys):
             cmds.append(new_keys[i : i + max_keys])
 
-        for cmd in cmds:
-            current_zone = bytes([1])
-            n_keys = bytes([len(cmd)])
-            _bytes = bytes.fromhex("0C00000000000000000000")
-            _bytes = (
-                _bytes[0:1]
-                + cmd
-                + _bytes[1 + len(cmd) : 8]
-                + current_zone
-                + n_keys
-                + bytes([await self._get_crc(cmd)])
-            )
-            await self._send_command(_bytes)
+        async with self._lock:
+            for cmd in cmds:
+                current_zone = bytes([1])
+                n_keys = bytes([len(cmd)])
+                _bytes = bytes.fromhex("0C00000000000000000000")
+                _bytes = (
+                    _bytes[0:1]
+                    + cmd
+                    + _bytes[1 + len(cmd) : 8]
+                    + current_zone
+                    + n_keys
+                    + bytes([await self._get_crc(cmd)])
+                )
+                await self._send_command(_bytes)
+
+            if update:
+                await self.get_status_cmd()
