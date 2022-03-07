@@ -210,7 +210,7 @@ class Alarm:
         await self._writer.drain()
 
         # Wait for a response
-        return await asyncio.wait_for(self._reader.read(32), timeout=2)
+        return await asyncio.wait_for(self._reader.read(32), timeout=3)
 
     async def _send_command(self, message: bytes):
         resp = None
