@@ -1,9 +1,12 @@
+"""Module that allows control and monitoring of an Alarm system
+"""
+
 import asyncio
-from asyncio import tasks
 from dataclasses import dataclass
 from enum import Enum
 import logging
 from typing import Callable, Dict, List, Optional, Union
+from aioretry import RetryInfo, retry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +52,8 @@ def to_bin(_bytes: Union[bytes, int]):
 
 @dataclass
 class Zone:
-    """"""
+    """ Dataclass to store the zones of the alarm
+    """
 
     number: int
     name: str = ""
@@ -58,7 +62,8 @@ class Zone:
 
 @dataclass
 class Output:
-    """"""
+    """Dataclass to store the varios alarm output states
+    """
 
     number: int
     name: str = ""
@@ -66,7 +71,8 @@ class Output:
 
 
 class ArmingMode(Enum):
-    """"""
+    """Enumarator with all the alarm states
+    """
 
     DISARMED = 0
     ARMED_AWAY = 1
@@ -75,7 +81,8 @@ class ArmingMode(Enum):
 
 @dataclass
 class Area:
-    """"""
+    """Dataclass representig the alarm area
+    """
 
     number: int
     name: str = ""
@@ -88,6 +95,9 @@ SirenListener = Callable[[bool], bool]
 
 
 class Alarm:
+    """Class representing the alarm object
+    """
+
     NUMBER_OF_ZONES = 16
     # NUMBER_OF_AREAS = 4
     NUMBER_OF_AREAS = 1
@@ -102,7 +112,7 @@ class Alarm:
         self._zone_listeners: Dict[int, List[ZoneListener]] = {}
         self._area_listeners: Dict[int, List[AreaListener]] = {}
         self._siren_listeners: List[SirenListener] = []
-        self._zones: dict[int, Zone] = {}
+        self._zones: Dict[int, Zone] = {}
         self._num_par_reqs = 0
         self._ip = ip
         self._port = port
@@ -115,20 +125,32 @@ class Alarm:
         self._writer: asyncio.StreamWriter
         self._tasks: List[asyncio.Task] = []
 
+    async def _open_connection(self):
+        self._reader, self._writer = await asyncio.open_connection(self._ip, self._port)
+
     async def start(self) -> bool:
+        """Establish the connection to the alarm
+        """
+
+        await self._open_connection()
         self._reader, self._writer = await asyncio.open_connection(self._ip, self._port)
         # Create the task that requests the status periodically
         self._tasks.append(asyncio.create_task(self._get_status_task()))
         return True
 
     async def stop(self) -> bool:
+        """Stop the connection  to the alarm
+        """
+
         for task in self._tasks:
             task.cancel()
         return True
 
     @property
     def zones(self):
-        """"""
+        """Property that returns the list of zones available
+        """
+
         return list(self._zones.values())
 
     def _create_zones(self):
@@ -137,17 +159,23 @@ class Alarm:
             self._zones[zone.number] = zone
 
     def _create_areas(self):
-        self._areas: dict[int, Area] = {}
+        self._areas: Dict[int, Area] = {}
         for i in range(self.NUMBER_OF_AREAS):
             area = Area(i + 1)
             self._areas[area.number] = area
 
     @property
     def areas(self):
+        """Property that return the list of areas supported by the alarm
+        """
+
         return self._areas
 
     @property
     def siren(self):
+        """Property that return the siren status
+        """
+
         return self._siren
 
     def _create_outputs(self):
@@ -155,6 +183,29 @@ class Alarm:
         for i in range(self.NUMBER_OF_OUTPUTS):
             output = Output(i + 1)
             self._outputs[output.number] = output
+
+    @staticmethod
+    def _retry_policy(info: RetryInfo):
+        if (
+            isinstance(info.exception, asyncio.exceptions.TimeoutError)
+            and info.fails <= 1
+        ):
+            return False, 4
+        return True, 0
+
+    async def _before_retry(self, info: RetryInfo) -> None:
+        # Reconnect
+        await self._open_connection()
+
+    @retry(retry_policy="_retry_policy", before_retry="_before_retry")
+    async def _send(self, message: bytes):
+
+        # Send the command
+        self._writer.write(message)
+        await self._writer.drain()
+
+        # Wait for a response
+        return await asyncio.wait_for(self._reader.read(32), timeout=3)
 
     async def _send_command(self, message: bytes):
         resp = None
@@ -164,25 +215,15 @@ class Alarm:
 
         try:
             self._num_par_reqs += 1
-
-            # Ensure a clean buffer
-            self._reader._buffer.clear()
-
-            # Send the command
-            self._writer.write(message)
-            await self._writer.drain()
-
-            # Wait for a response
-            try:
-                resp = await asyncio.wait_for(self._reader.read(32), timeout=2)
-            except asyncio.exceptions.TimeoutError:
-                _LOGGER.warning("Message not received on time")
-            except asyncio.IncompleteReadError as ex:
-                _LOGGER.warning("Message not received. Reason: %s", ex)
-
-            return resp
+            resp = await self._send(message)
+        except asyncio.exceptions.TimeoutError:
+            _LOGGER.warning("Message not received on time")
+        except asyncio.IncompleteReadError as ex:
+            _LOGGER.warning("Message not received. Reason: %s", ex)
         finally:
             self._num_par_reqs -= 1
+
+        return resp
 
     async def _get_status_task(self):
         while True:
@@ -197,7 +238,8 @@ class Alarm:
             self._handle_status_msg(data)
 
     async def get_status_cmd(self):
-        """ """
+        """Command to request the status of the alarm
+        """
 
         cmd = bytes([0x01, 0x00, 0x00, 0x00, 0x91, 0x30, 0x19, 0x0F, 0x00, 0x00, 0xF1])
         resp = await self._send_command(cmd)
@@ -235,18 +277,27 @@ class Alarm:
                 )
 
     def add_zone_listener(self, zone_number: int, listener: ZoneListener):
+        """Add a listener function to listen for zone state changes
+        """
+
         if zone_number in set(self._zones.keys()):
             if zone_number not in self._zone_listeners:
                 self._zone_listeners[zone_number] = []
             self._zone_listeners[zone_number].append(listener)
 
     def add_area_listener(self, area_number: int, listener: AreaListener):
+        """Add a listener function to listen for are state changes
+        """
+
         if area_number in set(self._areas.keys()):
             if area_number not in self._area_listeners:
                 self._area_listeners[area_number] = []
             self._area_listeners[area_number].append(listener)
 
     def add_siren_listener(self, listener: SirenListener):
+        """Add a listener function to listen for siren state changes
+        """
+
         self._siren_listeners.append(listener)
 
     def _update_siren_status(self, data: int):
@@ -332,7 +383,8 @@ class Alarm:
         return 0
 
     async def send_keys(self, keys: Union[str, List[str]]):
-        """  """
+        """Simulates a keypad, allowing sending multiple keys
+        """
 
         keys_list: List[str] = list(keys)
 
@@ -341,9 +393,9 @@ class Alarm:
         for k in keys_list:
             if k.isdigit() and int(k) in range(0, 10):
                 new_keys += bytes([int(k)])
-            elif "*" == k:
+            elif k == "*":
                 new_keys += bytes([0x1B])
-            elif "#" == k:
+            elif k == "#":
                 new_keys += bytes([0x1A])
             else:
                 _LOGGER.error("Unrecognized key %s", k)
@@ -358,13 +410,13 @@ class Alarm:
         for cmd in cmds:
             current_zone = bytes([1])
             n_keys = bytes([len(cmd)])
-            b = bytes.fromhex("0C00000000000000000000")
-            b = (
-                b[0:1]
+            _bytes = bytes.fromhex("0C00000000000000000000")
+            _bytes = (
+                _bytes[0:1]
                 + cmd
-                + b[1 + len(cmd) : 8]
+                + _bytes[1 + len(cmd) : 8]
                 + current_zone
                 + n_keys
                 + bytes([await self._get_crc(cmd)])
             )
-            resp = await self._send_command(b)
+            await self._send_command(_bytes)
