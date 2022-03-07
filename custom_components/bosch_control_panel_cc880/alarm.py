@@ -187,15 +187,18 @@ class Alarm:
     @staticmethod
     def _retry_policy(info: RetryInfo):
         if (
-            isinstance(info.exception, asyncio.exceptions.TimeoutError)
-            and info.fails <= 1
+            isinstance(
+                info.exception, (asyncio.exceptions.TimeoutError, ConnectionResetError)
+            )
+            and info.fails <= 2
         ):
-            return False, 4
+            return False, 2
         return True, 0
 
     async def _before_retry(self, info: RetryInfo) -> None:
         # Reconnect
-        await self._open_connection()
+        if info.fails >= 2:
+            await self._open_connection()
 
     @retry(retry_policy="_retry_policy", before_retry="_before_retry")
     async def _send(self, message: bytes):
@@ -220,6 +223,8 @@ class Alarm:
             _LOGGER.warning("Message not received on time")
         except asyncio.IncompleteReadError as ex:
             _LOGGER.warning("Message not received. Reason: %s", ex)
+        except ConnectionResetError:
+            _LOGGER.warning("Connection reset by peer")
         finally:
             self._num_par_reqs -= 1
 
