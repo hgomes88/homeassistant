@@ -40,7 +40,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     _success = False
     _ip = entry.data[CONF_HOST]
     _port = entry.data[CONF_PORT]
-    _alarm = ControlPanel(ip=_ip, port=_port, loop=hass.loop)
+    _alarm = ControlPanel(
+        ip=_ip,
+        port=_port,
+        loop=hass.loop,
+        get_status_period_s=1.0
+    )
     _success = await _alarm.start()
 
     if _success:

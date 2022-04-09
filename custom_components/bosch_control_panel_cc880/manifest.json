@@ -4,7 +4,7 @@
   "version": "1.2.1",
   "config_flow": true,
   "documentation": "https://www.home-assistant.io/integrations/bosch_control_panel_cc880",
-  "requirements": ["bosch-control-panel-cc880p==1.1.0"],
+  "requirements": ["bosch-control-panel-cc880p==1.1.2"],
   "ssdp": [],
   "zeroconf": [],
   "homekit": {},
