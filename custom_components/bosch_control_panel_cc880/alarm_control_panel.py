@@ -106,25 +106,28 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
     @property
     def state(self):
         """Return the state of the device."""
-        if self._alarm.siren:
+
+        # If is arming, or disarming, always present that status
+        if self._transition_state:
+            self._state = self._transition_state
+        # Else if siren is triggere Show that the siren was triggered
+        elif self._alarm.siren:
             self._state = STATE_ALARM_TRIGGERED
+        # Else show any other alarm state
         else:
-            if self._transition_state:
-                self._state = self._transition_state
-            else:
-                mode = self._alarm.areas[1].mode
-                if mode == ArmingMode.DISARMED and self._state != STATE_ALARM_DISARMED:
-                    self._state = STATE_ALARM_DISARMED
-                elif (
-                    mode == ArmingMode.ARMED_AWAY
-                    and self._state != STATE_ALARM_ARMED_AWAY
-                ):
-                    self._state = STATE_ALARM_ARMED_AWAY
-                elif (
-                    mode == ArmingMode.ARMED_STAY
-                    and self._state != STATE_ALARM_ARMED_NIGHT
-                ):
-                    self._state = STATE_ALARM_ARMED_NIGHT
+            mode = self._alarm.areas[1].mode
+            if mode == ArmingMode.DISARMED and self._state != STATE_ALARM_DISARMED:
+                self._state = STATE_ALARM_DISARMED
+            elif (
+                mode == ArmingMode.ARMED_AWAY
+                and self._state != STATE_ALARM_ARMED_AWAY
+            ):
+                self._state = STATE_ALARM_ARMED_AWAY
+            elif (
+                mode == ArmingMode.ARMED_STAY
+                and self._state != STATE_ALARM_ARMED_NIGHT
+            ):
+                self._state = STATE_ALARM_ARMED_NIGHT
 
         return self._state
 
