@@ -2,7 +2,8 @@ import asyncio
 import logging
 from uuid import uuid4
 
-from .alarm import Alarm, Zone
+from bosch.control_panel.cc880p.cp import ControlPanel
+from bosch.control_panel.cc880p.models import Zone
 from .const import DATA_BOSCH, DOMAIN
 
 from homeassistant.components.binary_sensor import (
@@ -19,8 +20,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     _LOGGER.debug("Async Setup Entry Bosch Alarm Zone")
 
-    _alarm: Alarm = hass.data[DOMAIN][config_entry.entry_id][DATA_BOSCH]
-    async_add_entities(BoschAlarmZone(_alarm, zone) for zone in _alarm.zones)
+    _alarm: ControlPanel = hass.data[DOMAIN][config_entry.entry_id][DATA_BOSCH]
+    async_add_entities(BoschAlarmZone(_alarm, zone) for zone in list(_alarm.zones.values()))
 
 
 async def async_unload_entry(hass, config_entry):
@@ -38,10 +39,10 @@ async def async_remove_entry(hass, entry) -> None:
 class BoschAlarmZone(BinarySensorEntity):
     """Bosch Zone"""
 
-    def __init__(self, alarm: Alarm, zone=Zone) -> None:
+    def __init__(self, alarm: ControlPanel, zone: Zone) -> None:
         """Initalize Bosh Alarm Zone object"""
 
-        self._alarm: Alarm = alarm
+        self._alarm: ControlPanel = alarm
         self._zone: Zone = zone
         self._is_on = False
         self._state = STATE_UNKNOWN

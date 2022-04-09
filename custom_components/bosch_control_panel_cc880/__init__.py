@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 import voluptuous as vol
-from .alarm import Alarm
+from bosch.control_panel.cc880p.cp import ControlPanel
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -33,13 +33,14 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """ """
 
     _LOGGER.info("Async Setup Entry Start...")
 
     _success = False
     _ip = entry.data[CONF_HOST]
     _port = entry.data[CONF_PORT]
-    _alarm = Alarm(ip=_ip, port=_port)
+    _alarm = ControlPanel(ip=_ip, port=_port, loop=hass.loop)
     _success = await _alarm.start()
 
     if _success:
@@ -76,7 +77,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     )
     if _success:
         _LOGGER.info("Async Unload Entry Done")
-        _alarm: Alarm = hass.data[DOMAIN].pop(entry.entry_id)[DATA_BOSCH]
+        _alarm: ControlPanel = hass.data[DOMAIN].pop(entry.entry_id)[DATA_BOSCH]
         await _alarm.stop()
     else:
         _LOGGER.error("Async Unload Entry Error")
@@ -85,6 +86,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 
 async def options_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """ """
+
     _alarm = hass.data[DOMAIN][entry.entry_id][DATA_BOSCH]
     # TODO: Support for options update
     # _alarm.update_options(entry.options)
