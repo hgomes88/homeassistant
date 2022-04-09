@@ -1,10 +1,9 @@
-import asyncio
 import logging
-from signal import alarm
 from typing import Optional
 
 from .const import DATA_BOSCH, DOMAIN
-from .alarm import Alarm, Area, ArmingMode
+from bosch.control_panel.cc880p.cp import ControlPanel
+from bosch.control_panel.cc880p.models import Area, ArmingMode
 
 from homeassistant.components.alarm_control_panel import (
     FORMAT_NUMBER,
@@ -56,11 +55,11 @@ async def async_remove_entry(hass, entry) -> None:
 class BoschAlarmControlPanel(AlarmControlPanelEntity):
     """Bosch Control Panel."""
 
-    def __init__(self, alarm: Alarm) -> None:
+    def __init__(self, alarm: ControlPanel) -> None:
 
         self._state = STATE_UNKNOWN
-        self._tansition_state: Optional[str] = None
-        self._alarm: Alarm = alarm
+        self._transition_state: Optional[str] = None
+        self._alarm: ControlPanel = alarm
 
     async def _init(self):
         self._alarm.add_area_listener(1, self._area_listener)
@@ -110,8 +109,8 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
         if self._alarm.siren:
             self._state = STATE_ALARM_TRIGGERED
         else:
-            if self._tansition_state:
-                self._state = self._tansition_state
+            if self._transition_state:
+                self._state = self._transition_state
             else:
                 mode = self._alarm.areas[1].mode
                 if mode == ArmingMode.DISARMED and self._state != STATE_ALARM_DISARMED:
@@ -137,16 +136,17 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
     async def _change_state(self, code, transition_state):
         try:
             # Change the status to the transition state
-            self._tansition_state = transition_state
+            self._transition_state = transition_state
             # Force update of the transtition state
             await self.async_update_ha_state()
             # Send the code to change the state
             await self._alarm.send_keys(keys=code, update=True)
+            self._transition_state = None
             # Force the update
             await self.async_update_ha_state()
-        except Exception as ex:
+        except BaseException as ex:
             _LOGGER.error("Couldn't change the alarm to %s: %s", transition_state, ex)
-            self._tansition_state = None
+            self._transition_state = None
             # Force update of the transtition state
             await self.async_update_ha_state()
 
@@ -174,14 +174,16 @@ class BoschAlarmControlPanel(AlarmControlPanelEntity):
     def alarm_trigger(self, code=None):
         _LOGGER.info("Triggering the Alarm")
 
-    def async_alarm_arm_custom_bypass(self, code=None) -> None:
+    async def async_alarm_arm_custom_bypass(self, code=None) -> None:
+        """ """
+
         _LOGGER.info("Arming with custom")
 
-    async def async_update(self):
-        # Request the new status
-        await self._alarm.get_status_cmd()
-        # Remove the transition state
-        self._tansition_state = None
+    # async def async_update(self):
+    #     # Request the new status
+    #     await self._alarm.get_status_cmd()
+    #     # Remove the transition state
+    #     self._transition_state = None
 
     async def _area_listener(self, area: Area):
         await self.async_update_ha_state()
