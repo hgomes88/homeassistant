@@ -15,3 +15,6 @@ TITLE: Final = "Bosch Alarm"
 
 CONF_HOST: Final = "host"
 CONF_PORT: Final = "port"
+
+SERVICE_SIREN: Final = "siren"
+SERVICE_OUTPUT: Final = "output"

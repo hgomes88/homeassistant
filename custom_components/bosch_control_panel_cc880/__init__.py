@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 import voluptuous as vol
-from bosch.control_panel.cc880p.cp import ControlPanel
+from bosch.control_panel.cc880p.cp import CP
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -24,7 +24,6 @@ CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the bosch_control_panel_cc880 component."""
-
     _LOGGER.info("Async Setup")
 
     hass.data.setdefault(DOMAIN, {})
@@ -32,15 +31,22 @@ async def async_setup(hass: HomeAssistant, config: dict):
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """ """
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Entry function during initialization of bosch control panel.
 
+    Args:
+        hass (HomeAssistant): Homeassistant object
+        entry (ConfigEntry): Configuration needed for the initialization of the control panel
+
+    Returns:
+        bool: Return True if the setup was successfully done. False otherwise
+    """
     _LOGGER.info("Async Setup Entry Start...")
 
     _success = False
     _ip = entry.data[CONF_HOST]
     _port = entry.data[CONF_PORT]
-    _alarm = ControlPanel(
+    _alarm = CP(
         ip=_ip,
         port=_port,
         loop=hass.loop,
@@ -69,7 +75,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
-
     _LOGGER.info("Async Unload Entry Start...")
 
     _success = all(
@@ -82,7 +87,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     )
     if _success:
         _LOGGER.info("Async Unload Entry Done")
-        _alarm: ControlPanel = hass.data[DOMAIN].pop(entry.entry_id)[DATA_BOSCH]
+        _alarm: CP = hass.data[DOMAIN].pop(entry.entry_id)[DATA_BOSCH]
         await _alarm.stop()
     else:
         _LOGGER.error("Async Unload Entry Error")
@@ -91,9 +96,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 
 async def options_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """ """
+    """Update the currently available control panel.
 
-    _alarm = hass.data[DOMAIN][entry.entry_id][DATA_BOSCH]
+    Args:
+        hass (HomeAssistant): The Homeassistant object
+        entry (ConfigEntry): The options needed to update the control panel
+    """
     # TODO: Support for options update
+    # _alarm = hass.data[DOMAIN][entry.entry_id][DATA_BOSCH]
     # _alarm.update_options(entry.options)
-
+    return
