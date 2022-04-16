@@ -1,20 +1,28 @@
 """The bosch_control_panel_cc880 integration."""
 import asyncio
 import logging
+from typing import Dict
 
 import voluptuous as vol
 from bosch.control_panel.cc880p.cp import CP
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import Entity
 
 from .const import (
     CONF_HOST,
     CONF_PORT,
     DATA_BOSCH,
     DATA_OPTIONS_UPDATE_UNSUBSCRIBER,
+    DEVICE_ID,
     DOMAIN,
+    HW_VERSION,
+    MANUFACTURER,
+    MODEL,
     PLATFORMS,
+    SW_VERSION,
+    TITLE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -106,3 +114,24 @@ async def options_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> No
     # _alarm = hass.data[DOMAIN][entry.entry_id][DATA_BOSCH]
     # _alarm.update_options(entry.options)
     return
+
+
+class BoschControlPanelDevice(Entity):
+    """Class used to link all the control panel etities into a single device."""
+
+    @property
+    def device_info(self) -> Dict[str, str]:
+        """Get the device information.
+
+        Returns:
+            Dict[str, str]: THe dictionary with the information of the device
+        """
+        return {
+            "identifiers": {(DOMAIN, DEVICE_ID)},
+            "name": TITLE,
+            "manufacturer": MANUFACTURER,
+            "model": MODEL,
+            "sw_version": SW_VERSION,
+            "hw_version": HW_VERSION,
+            "via_device": "none"
+        }
