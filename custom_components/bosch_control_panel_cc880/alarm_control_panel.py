@@ -5,6 +5,8 @@ import logging
 from typing import Optional
 import voluptuous as vol
 
+from . import BoschControlPanelDevice
+
 from .const import DATA_BOSCH, DOMAIN, SERVICE_OUTPUT, SERVICE_SIREN
 from bosch.control_panel.cc880p.cp import CP
 from bosch.control_panel.cc880p.models import ArmingMode
@@ -69,7 +71,7 @@ async def async_remove_entry(hass, entry) -> None:
     _LOGGER.debug("Async Remove Entry Alarm Control Panel")
 
 
-class BoschAlarmControlPanel(AlarmControlPanelEntity):
+class BoschAlarmControlPanel(BoschControlPanelDevice, AlarmControlPanelEntity):
     """Bosch Control Panel."""
 
     def __init__(self, alarm: CP) -> None:

@@ -6,6 +6,8 @@ from bosch.control_panel.cc880p.cp import CP
 from bosch.control_panel.cc880p.models import Zone
 from bosch.control_panel.cc880p.models import ControlPanelModel
 from bosch.control_panel.cc880p.models import Id
+
+from . import BoschControlPanelDevice
 from .const import DATA_BOSCH, DOMAIN
 
 from homeassistant.components.binary_sensor import (
@@ -35,7 +37,7 @@ async def async_remove_entry(hass, entry) -> None:
     _LOGGER.debug("Async Remove Entry Bosch Alarm Zone")
 
 
-class BoschAlarmZone(BinarySensorEntity):
+class BoschAlarmZone(BoschControlPanelDevice, BinarySensorEntity):
     """Zone of bosch control panel."""
 
     def __init__(self, alarm: CP, idd: Id, zone: Zone) -> None:
