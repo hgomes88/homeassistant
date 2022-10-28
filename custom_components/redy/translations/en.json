@@ -1,0 +1,25 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Device is already configured"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unexpected error"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "password": "Password",
+                    "username": "Username",
+                    "region": "Region",
+                    "user_pool_id": "User Pool ID",
+                    "client_id": "Client ID",
+                    "identity_id": "Identity ID",
+                    "identity_login": "Identity Login"
+                }
+            }
+        }
+    }
+}
