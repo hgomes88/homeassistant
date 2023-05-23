@@ -1,0 +1,21 @@
+{
+  "title": "Painel de Controlo Bosch CC880",
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "host": "Host (IP ou Hostname)",
+          "port": "Porta",
+          "installer_code": "Código Instalador"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "A ligação não foi possível",
+      "unknown": "Erro desconhecido"
+    },
+    "abort": {
+      "already_configured": "Já configurado"
+    }
+  }
+}

@@ -3,41 +3,46 @@
 import logging
 
 from bosch.control_panel.cc880p.cp import CP
-from bosch.control_panel.cc880p.models import Zone
-from bosch.control_panel.cc880p.models import ControlPanelModel
-from bosch.control_panel.cc880p.models import Id
+from bosch.control_panel.cc880p.models.cp import Availability, Id, Zone
+from bosch.control_panel.cc880p.models.listener import BaseControlPanelListener
+
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+)
+from homeassistant.const import STATE_UNKNOWN
+from homeassistant.core import HomeAssistant
 
 from . import BoschControlPanelDevice
 from .const import DATA_BOSCH, DOMAIN
 
-from homeassistant.components.binary_sensor import (
-    DEVICE_CLASS_MOTION,
-    BinarySensorEntity,
-)
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
-
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass, config_entry, async_add_entities):
+async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entities):
     """Set up entry."""
     _LOGGER.debug("Async Setup Entry Bosch Alarm Zone")
 
     _alarm: CP = hass.data[DOMAIN][config_entry.entry_id][DATA_BOSCH]
-    async_add_entities(BoschAlarmZone(_alarm, id, zone) for id, zone in _alarm.control_panel.zones.items())
+    async_add_entities(
+        BoschAlarmZone(_alarm, id, zone)
+        for id, zone in _alarm.control_panel.zones.items()
+    )
 
 
-async def async_unload_entry(hass, config_entry):
+async def async_unload_entry(hass: HomeAssistant, config_entry):
     """Unload entry."""
     _LOGGER.debug("Async Unload Entry Bosch Alarm Zone")
 
 
-async def async_remove_entry(hass, entry) -> None:
+async def async_remove_entry(hass: HomeAssistant, entry) -> None:
     """Handle removal of an entry."""
     _LOGGER.debug("Async Remove Entry Bosch Alarm Zone")
 
 
-class BoschAlarmZone(BoschControlPanelDevice, BinarySensorEntity):
+class BoschAlarmZone(
+    BoschControlPanelDevice, BinarySensorEntity, BaseControlPanelListener
+):
     """Zone of bosch control panel."""
 
     def __init__(self, alarm: CP, idd: Id, zone: Zone) -> None:
@@ -45,7 +50,7 @@ class BoschAlarmZone(BoschControlPanelDevice, BinarySensorEntity):
 
         Args:
             alarm (CP): The bosch control panel object
-            id (Id): The numer/id of this zone
+            idd (Id): The number/id of this zone
             zone (Zone): Zone object
         """
         self._alarm: CP = alarm
@@ -53,18 +58,18 @@ class BoschAlarmZone(BoschControlPanelDevice, BinarySensorEntity):
         self._zone: Zone = zone
         self._is_on = False
         self._state = STATE_UNKNOWN
-
-    async def _init(self):
-        self._alarm.add_control_panel_listener(self._zone_listener)
+        self._attr_device_class = BinarySensorDeviceClass.MOTION
 
     async def async_added_to_hass(self) -> None:
         """Initialize the zone when it is added to hass."""
         _LOGGER.info("Starting the Bosch Control Panel Zone %d", self._id)
-        await self._init()
+        self._alarm.add_listener(self)
+        await self.async_update_ha_state(force_refresh=True)
         _LOGGER.info("Started the Bosch Control Panel Zone %d", self._id)
 
     async def async_will_remove_from_hass(self) -> None:
         """Cleanup the zone when it is about to be removed from hass."""
+        self._alarm.remove_listener(self)
         _LOGGER.info("Stopping the Bosch Control Panel Zone %d", self._id)
         _LOGGER.info("Stopped the Bosch Control Panel Zone %d", self._id)
 
@@ -78,24 +83,6 @@ class BoschAlarmZone(BoschControlPanelDevice, BinarySensorEntity):
         return self._zone.triggered
 
     @property
-    def state(self) -> str:
-        """Return the state of the zone.
-
-        Returns:
-            str: Returns 'on' if is triggered. 'off' otherwise
-        """
-        return STATE_ON if self.is_on else STATE_OFF
-
-    @property
-    def device_class(self) -> str:
-        """Return the class of the device.
-
-        Returns:
-            str: The class of the device
-        """
-        return DEVICE_CLASS_MOTION
-
-    @property
     def unique_id(self):
         """Return a unique ID to use for this device."""
         return f"bosch_zone_{self._id}"
@@ -105,6 +92,18 @@ class BoschAlarmZone(BoschControlPanelDevice, BinarySensorEntity):
         """Return the name of the device."""
         return f"bosch_zone_{self._id}"
 
-    async def _zone_listener(self, _: Id, zone: ControlPanelModel):
-        if isinstance(zone, Zone):
-            await self.async_update_ha_state()
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self._alarm.control_panel.availability.available
+
+    async def on_zone_trigger_changed(
+        self, id: Id, entity: Zone
+    ):  # pylint: disable=redefined-builtin
+        if id == self._id:
+            _LOGGER.debug("Zone[%d] trigger changed: %s", id, entity)
+            await self.async_update_ha_state(force_refresh=True)
+
+    async def on_availability_changed(self, entity: Availability):  # noqa: D102
+        _LOGGER.debug("Availability changed: %s", entity)
+        await self.async_update_ha_state(force_refresh=True)
