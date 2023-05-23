@@ -1,33 +1,29 @@
 """Support for Bosch Control Panel CC880P in Homeassistant."""
 
-from distutils.util import strtobool
+from datetime import datetime, timedelta
 import logging
-from typing import Optional
+
+from bosch.control_panel.cc880p.cp import CP
+from bosch.control_panel.cc880p.models.cp import (
+    Area,
+    ArmingMode,
+    Availability,
+    ControlPanelEntity,
+    Id,
+    Output,
+    Siren,
+    Time,
+    Zone,
+)
+from bosch.control_panel.cc880p.models.listener import BaseControlPanelListener
 import voluptuous as vol
 
-from . import BoschControlPanelDevice
-
-from .const import DATA_BOSCH, DOMAIN, SERVICE_OUTPUT, SERVICE_SIREN
-from bosch.control_panel.cc880p.cp import CP
-from bosch.control_panel.cc880p.models import ArmingMode
-from bosch.control_panel.cc880p.models import Id
-from bosch.control_panel.cc880p.models import ControlPanelModel
-from bosch.control_panel.cc880p.models import Siren
-from bosch.control_panel.cc880p.models import Area
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.core import ServiceCall
-from homeassistant.helpers import config_validation as cv
 from homeassistant.components.alarm_control_panel import (
-    FORMAT_NUMBER,
     AlarmControlPanelEntity,
+    AlarmControlPanelEntityFeature,
+    CodeFormat,
 )
-from homeassistant.components.alarm_control_panel.const import (
-    SUPPORT_ALARM_ARM_AWAY,
-    SUPPORT_ALARM_ARM_NIGHT,
-    SUPPORT_ALARM_TRIGGER,
-)
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_COMMAND,
     CONF_ID,
@@ -39,39 +35,68 @@ from homeassistant.const import (
     STATE_ALARM_TRIGGERED,
     STATE_UNKNOWN,
 )
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import config_validation as cv
+
+from . import BoschControlPanelDevice
+from .const import DATA_BOSCH, DOMAIN, SERVICE_OUTPUT, SERVICE_SIREN
 
 _LOGGER = logging.getLogger(__name__)
 
+# Icon to be used by default for the control panel
 ICON = "mdi:security"
 
+# Schema for executing the siren on/off service
 SERVICE_SIREN_SCHEMA = vol.Schema({vol.Required(CONF_COMMAND): cv.string})
 
-SERVICE_OUTPUT_SCHEMA = vol.Schema({
-    vol.Required(CONF_ID): cv.positive_int,
-    vol.Required(CONF_COMMAND): cv.string
-})
+# Schema to set an output on/off
+SERVICE_OUTPUT_SCHEMA = vol.Schema(
+    {vol.Required(CONF_ID): cv.positive_int, vol.Required(CONF_COMMAND): cv.string}
+)
+
+TWO_MINUTES = 60 * 2
 
 
-async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities
+):
     """Set up entry."""
     _LOGGER.debug("Async Setup Entry Alarm Control Panel")
 
+    # Get the instance of the control panel
     _alarm: CP = hass.data[DOMAIN][config_entry.entry_id][DATA_BOSCH]
 
     async_add_entities([BoschAlarmControlPanel(_alarm)])
 
 
-async def async_unload_entry(hass, config_entry):
+async def async_unload_entry(hass: HomeAssistant, config_entry):
     """Unload entry."""
     _LOGGER.debug("Async Unload Entry Alarm Control Panel")
 
 
-async def async_remove_entry(hass, entry) -> None:
+async def async_remove_entry(hass: HomeAssistant, entry) -> None:
     """Handle removal of an entry."""
     _LOGGER.debug("Async Remove Entry Alarm Control Panel")
 
 
-class BoschAlarmControlPanel(BoschControlPanelDevice, AlarmControlPanelEntity):
+def _strtobool(val):
+    """Convert a string representation of truth to true (1) or false (0).
+
+    True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
+    are 'n', 'no', 'f', 'false', 'off', and '0'.  Raises ValueError if
+    'val' is anything else.
+    """
+    val = val.lower()
+    if val in ("y", "yes", "t", "true", "on", "1"):
+        return 1
+    if val in ("n", "no", "f", "false", "off", "0"):
+        return 0
+    raise ValueError(f"invalid truth value {val!r}")
+
+
+class BoschAlarmControlPanel(
+    BoschControlPanelDevice, AlarmControlPanelEntity, BaseControlPanelListener
+):
     """Bosch Control Panel."""
 
     def __init__(self, alarm: CP) -> None:
@@ -81,15 +106,14 @@ class BoschAlarmControlPanel(BoschControlPanelDevice, AlarmControlPanelEntity):
             alarm (CP): Object representation of the control panel
         """
         self._state = STATE_UNKNOWN
-        self._transition_state: Optional[str] = None
+        self._transition_state: str | None = None
         self._alarm: CP = alarm
         self._manual_trigger: bool = False
-        self._unavailable_count: int = 0
 
     @property
     def code_format(self):
         """Regex for code format or None if no code is required."""
-        return FORMAT_NUMBER
+        return CodeFormat.NUMBER
 
     @property
     def unique_id(self):
@@ -123,7 +147,7 @@ class BoschAlarmControlPanel(BoschControlPanelDevice, AlarmControlPanelEntity):
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self._is_available()
+        return self._alarm.control_panel.availability.available
 
     @property
     def assumed_state(self) -> bool:
@@ -136,7 +160,7 @@ class BoschAlarmControlPanel(BoschControlPanelDevice, AlarmControlPanelEntity):
         # If is arming, or disarming, always present that status
         if self._transition_state:
             self._state = self._transition_state
-        # Else if siren is triggere Show that the siren was triggered
+        # Else if siren is triggered, show that the siren was triggered
         elif self._alarm.control_panel.siren.on:
             self._state = STATE_ALARM_TRIGGERED
         # Else show any other alarm state
@@ -145,60 +169,60 @@ class BoschAlarmControlPanel(BoschControlPanelDevice, AlarmControlPanelEntity):
             if mode == ArmingMode.DISARMED and self._state != STATE_ALARM_DISARMED:
                 self._state = STATE_ALARM_DISARMED
             elif (
-                mode == ArmingMode.ARMED_AWAY
-                and self._state != STATE_ALARM_ARMED_AWAY
+                mode == ArmingMode.ARMED_AWAY and self._state != STATE_ALARM_ARMED_AWAY
             ):
                 self._state = STATE_ALARM_ARMED_AWAY
             elif (
-                mode == ArmingMode.ARMED_STAY
-                and self._state != STATE_ALARM_ARMED_NIGHT
+                mode == ArmingMode.ARMED_STAY and self._state != STATE_ALARM_ARMED_NIGHT
             ):
                 self._state = STATE_ALARM_ARMED_NIGHT
 
         return self._state
 
     @property
-    def state_attributes(self):
+    def _attr_extra_state_attributes(self):
         """Return the state attributes."""
         c_p = self._alarm.control_panel
         state_attr = {
-            'time': f'{c_p.time_utc.hour:02d}:{c_p.time_utc.minute:02d}:00',
-            'siren': int(c_p.siren.on),
-            'outputs': " ".join([str(int(out.on)) for _, out in c_p.outputs.items()]),
-            'zones_triggered': " ".join([str(int(zone.triggered)) for _, zone in c_p.zones.items()]),
-            'zones_enabled': " ".join([str(int(zone.enabled)) for _, zone in c_p.zones.items()])
+            "time": f"{c_p.time_utc.hour:02d}:{c_p.time_utc.minute:02d}:00",
+            "siren": int(c_p.siren.on),
+            "outputs": " ".join([str(int(out.on)) for _, out in c_p.outputs.items()]),
+            "zones_triggered": " ".join(
+                [str(int(zone.triggered)) for _, zone in c_p.zones.items()]
+            ),
+            "zones_enabled": " ".join(
+                [str(int(zone.enabled)) for _, zone in c_p.zones.items()]
+            ),
         }
 
-        state_attr.update(super().state_attributes)
         return state_attr
 
     @property
     def supported_features(self) -> int:
         """Return the list of supported features."""
-        return SUPPORT_ALARM_TRIGGER | SUPPORT_ALARM_ARM_NIGHT | SUPPORT_ALARM_ARM_AWAY
+        return (
+            AlarmControlPanelEntityFeature.TRIGGER
+            # | AlarmControlPanelEntityFeature.ARM_NIGHT
+            | AlarmControlPanelEntityFeature.ARM_AWAY
+        )
 
     async def async_added_to_hass(self) -> None:
-        """Initialize the control pannel when it is added to hass."""
+        """Initialize the control panel when it is added to hass."""
         _LOGGER.info("Starting the Bosch Control Panel")
         self.hass.services.async_register(
-            DOMAIN,
-            SERVICE_SIREN,
-            self._siren_service,
-            schema=SERVICE_SIREN_SCHEMA
+            DOMAIN, SERVICE_SIREN, self._siren_service, schema=SERVICE_SIREN_SCHEMA
         )
         self.hass.services.async_register(
-            DOMAIN,
-            SERVICE_OUTPUT,
-            self._out_service,
-            schema=SERVICE_OUTPUT_SCHEMA
+            DOMAIN, SERVICE_OUTPUT, self._out_service, schema=SERVICE_OUTPUT_SCHEMA
         )
-        self._alarm.add_control_panel_listener(self._listener)
+        self._alarm.add_listener(self)
 
         _LOGGER.info("Started the Bosch Control Panel")
 
     async def async_will_remove_from_hass(self) -> None:
         """Cleanup the control panel when it is about to be removed from hass."""
         _LOGGER.info("Stopping the Bosch Control Panel")
+        self._alarm.remove_listener(self)
         self.hass.services.async_remove(DOMAIN, SERVICE_SIREN)
         self.hass.services.async_remove(DOMAIN, SERVICE_OUTPUT)
         _LOGGER.info("Stopped the Bosch Control Panel")
@@ -212,13 +236,11 @@ class BoschAlarmControlPanel(BoschControlPanelDevice, AlarmControlPanelEntity):
         _LOGGER.info("Disarming")
         if self._manual_trigger:
             # Disable Siren and get the status forcing update
-            await self._alarm.set_siren(False, update=True)
+            await self._alarm.set_siren(False)
             # Clear the manual trigger
             self._manual_trigger = False
-            # Ask hass to update the state of the alarm
-            await self.async_update_ha_state()
-        # If alarm is armed anyway, proceed with the disarm, otherwise dont' do anythign
-        if self.state not in [STATE_ALARM_DISARMING, STATE_ALARM_DISARMED]:
+        # If alarm is armed anyway, proceed with the disarm, otherwise don't do anything
+        elif self.state not in [STATE_ALARM_DISARMING, STATE_ALARM_DISARMED]:
             await self._change_state(
                 code=f"{code}#", transition_state=STATE_ALARM_DISARMING
             )
@@ -269,44 +291,81 @@ class BoschAlarmControlPanel(BoschControlPanelDevice, AlarmControlPanelEntity):
         try:
             # Change the status to the transition state
             self._transition_state = transition_state
-            # Force update of the transtition state
-            await self.async_update_ha_state()
+            # Force update of the transition state
+            await self.async_update_ha_state(force_refresh=True)
             # Send the code to change the state
-            await self._alarm.send_keys(keys=code, update=True)
+            await self._alarm.send_keys(keys=code)
             self._transition_state = None
-            # Force the update
-            await self.async_update_ha_state()
+            # Force to get the status again
+            # This is needed because the control panel doesn't return the
+            # current status in the first message
+            await self._alarm.get_status()
         except Exception as ex:  # pylint: disable=broad-except
             _LOGGER.error("Couldn't change the alarm to %s: %s", transition_state, ex)
             self._transition_state = None
-            # Force update of the transtition state
-            await self.async_update_ha_state()
+            # Force update of the transition state
+            await self.async_update_ha_state(force_refresh=True)
 
-    def _is_available(self):
-        # Considered available while it doesn't fail 3 times in a row
-        return self._unavailable_count < 3
+    def _time_synced(self) -> bool:
+        cp_time = self._alarm.control_panel.time.time
+        cur_time = datetime.now().time().replace(second=0, microsecond=0)
+        cp_timedelta = timedelta(hours=cp_time.hour, minutes=cp_time.minute)
+        cur_timedelta = timedelta(hours=cur_time.hour, minutes=cur_time.minute)
+        diff_seconds = abs(cur_timedelta - cp_timedelta).total_seconds()
 
-    def _set_available(self, available: bool = True):
-        if available:
-            self._unavailable_count = 0
-        else:
-            self._unavailable_count += 1
+        return diff_seconds < TWO_MINUTES
 
-    async def _listener(self, _: Id, c_p: ControlPanelModel):
-        if isinstance(c_p, (Siren, Area)):
-            await self.async_update_ha_state()
-
-        # Always update te availability
-        self._set_available(self._alarm.control_panel.availability.available)
-
-        return True
+    async def _sync_time(self):
+        try:
+            if self._time_synced():
+                # Need to set the time in the control panel
+                _LOGGER.info("Time is synchronized")
+            else:
+                _LOGGER.warning("Synchronizing the time")
+                await self._alarm.set_time()
+        except Exception:  # pylint: disable=broad-exception-caught
+            _LOGGER.exception("Time synchronization failed")
 
     async def _siren_service(self, call: ServiceCall):
-        status = bool(strtobool(call.data[CONF_COMMAND]))
-        await self._alarm.set_siren(status, update=True)
+        status = bool(_strtobool(call.data[CONF_COMMAND]))
+        await self._alarm.set_siren(status)
         self._manual_trigger = status
 
     async def _out_service(self, call: ServiceCall):
         idd: Id = call.data[CONF_ID]
-        status = bool(strtobool(call.data[CONF_COMMAND]))
-        await self._alarm.set_output(idd, status, update=True)
+        status = bool(_strtobool(call.data[CONF_COMMAND]))
+        await self._alarm.set_output(idd, status)
+
+    async def on_availability_changed(self, entity: Availability):  # noqa: D102
+        _LOGGER.debug("Availability changed: %s", entity)
+        await self.async_update_ha_state(force_refresh=True)
+
+    async def on_siren_changed(self, entity: Siren):  # noqa: D102
+        _LOGGER.debug("Siren changed: %s", entity)
+        await self.async_update_ha_state(force_refresh=True)
+
+    async def on_area_changed(self, entity: Area):
+        _LOGGER.debug("Area changed: %s", entity)
+        await self.async_update_ha_state(force_refresh=True)
+
+    async def on_zone_changed(
+        self, id: Id, entity: Zone
+    ):  # pylint: disable=redefined-builtin
+        _LOGGER.debug("Zone[%d] changed: %s", id, entity)
+        await self.async_update_ha_state(force_refresh=True)
+
+    async def on_output_changed(
+        self, id: Id, entity: Output
+    ):  # pylint: disable=redefined-builtin
+        _LOGGER.debug("Output[%d] changed: %s", id, entity)
+        await self.async_update_ha_state(force_refresh=True)
+
+    async def on_time_changed(self, entity: Time):  # pylint: disable=redefined-builtin
+        _LOGGER.debug("Time changed: %s", entity)
+        await self._sync_time()
+        await self.async_update_ha_state(force_refresh=True)
+
+    async def on_changed(  # pylint: disable=redefined-builtin
+        self, entity: ControlPanelEntity, id: Id | None = None
+    ):
+        await self.async_update_ha_state(force_refresh=True)
